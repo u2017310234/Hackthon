@@ -238,15 +238,39 @@ class DatabaseManager:
         logger.info("Table 'I' created or already exists.")
 
     def query_financial_data(self, subject_name: str) -> Optional[Dict[str, Any]]:
-        """Query financial data by subject name."""
+        """
+        Query financial data by subject name.
+        
+        WARNING: This is a PLACEHOLDER implementation. Replace with actual database 
+        queries based on your schema. The placeholder data is for demonstration only.
+        
+        Example implementation:
+            query = "SELECT * FROM financial_data WHERE subject_name = %s"
+            with self.conn.cursor() as cur:
+                cur.execute(query, (subject_name,))
+                result = cur.fetchone()
+                return dict(result) if result else None
+        """
         logger.info(f"Querying financial data for subject: {subject_name}")
-        # Placeholder - replace with actual query
+        logger.warning("Using PLACEHOLDER financial data - implement actual query for production")
         return {"placeholder": "financial_data", "subject": subject_name}
 
     def query_event_model(self, event_type: str) -> Optional[Dict[str, Any]]:
-        """Query event model by event type."""
+        """
+        Query event model by event type.
+        
+        WARNING: This is a PLACEHOLDER implementation. Replace with actual database 
+        queries based on your schema. The placeholder data is for demonstration only.
+        
+        Example implementation:
+            query = "SELECT * FROM event_models WHERE event_type = %s"
+            with self.conn.cursor() as cur:
+                cur.execute(query, (event_type,))
+                result = cur.fetchone()
+                return dict(result) if result else None
+        """
         logger.info(f"Querying event model for type: {event_type}")
-        # Placeholder - replace with actual query
+        logger.warning("Using PLACEHOLDER event model - implement actual query for production")
         return {"placeholder": "event_model", "type": event_type}
 
     def insert_analysis_result(
@@ -390,7 +414,21 @@ class AnalysisAgent(WorkerAgent):
             self.db_manager.create_result_table()
 
         # Initialize LLM runner
-        api_key_names = [key for key in os.environ.keys() if key.startswith("Y")]
+        # API key environment variables (checked in order of priority):
+        # 1. GEMINI_API_KEY or GOOGLE_API_KEY (standard)
+        # 2. Variables starting with 'Y' (legacy, for compatibility with original main.py)
+        # 3. Variables starting with 'MILITAI' (legacy, alternative naming)
+        api_key_names = []
+        
+        # Check standard environment variable names first
+        if os.environ.get("GEMINI_API_KEY"):
+            api_key_names.append("GEMINI_API_KEY")
+        if os.environ.get("GOOGLE_API_KEY"):
+            api_key_names.append("GOOGLE_API_KEY")
+        
+        # Fall back to legacy naming conventions
+        if not api_key_names:
+            api_key_names = [key for key in os.environ.keys() if key.startswith("Y")]
         if not api_key_names:
             api_key_names = [key for key in os.environ.keys() if key.startswith("MILITAI")]
         

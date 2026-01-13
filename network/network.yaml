@@ -48,6 +48,9 @@ network:
 
     admin:
       description: Administrator agents with full permissions
+      # WARNING: This is a default password hash (SHA-256 of 'admin').
+      # CHANGE THIS IN PRODUCTION! Generate a new hash with:
+      # python -c "import hashlib; print(hashlib.sha256(b'your_secure_password').hexdigest())"
       password_hash: 8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918
       metadata:
         permissions:

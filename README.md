@@ -33,6 +33,12 @@ export DAILY_HOST="your_host"
 export DAILY_PORT="5432"
 
 # API 密钥（用于 Gemini LLM）
+# 推荐使用标准命名:
+export GEMINI_API_KEY="your_api_key"
+# 或者
+export GOOGLE_API_KEY="your_api_key"
+
+# 支持多个密钥进行轮换:
 export Y1="your_api_key_1"
 export Y2="your_api_key_2"
 # 或者使用
