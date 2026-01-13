@@ -1,0 +1,14 @@
+# OpenAgents Framework Requirements
+# This file lists the dependencies for running the Hackthon project with OpenAgents
+
+# Core framework
+openagents>=0.7.0
+
+# LLM Integration (Google Gemini)
+google-genai>=0.5.0
+
+# Database
+psycopg2-binary>=2.9.0
+
+# Optional: Alternative database driver
+# psycopg2>=2.9.0  # Use this for production (requires libpq-dev)
