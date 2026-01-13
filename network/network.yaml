@@ -1,0 +1,93 @@
+# Integrated Analysis Network Configuration
+# An OpenAgents network for financial analysis with LLM integration
+
+network:
+  name: IntegratedAnalysisNetwork
+  mode: centralized
+  node_id: analysis-network-1
+  initialized: true
+
+  # Transport configuration
+  transports:
+    - type: http
+      config:
+        port: 8700
+        serve_studio: true
+        serve_mcp: true
+    - type: grpc
+      config:
+        port: 8600
+        max_message_size: 104857600
+        compression: gzip
+        keepalive_time: 60000
+        keepalive_timeout: 30000
+
+  manifest_transport: http
+  recommended_transport: grpc
+  encryption_enabled: false
+  discovery_interval: 10
+  discovery_enabled: true
+  max_connections: 50
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  # Agent groups
+  agent_groups:
+    analysts:
+      description: Analysis agents for financial data processing
+      metadata:
+        permissions:
+          - analyze_data
+          - query_database
+          - send_reports
+
+    admin:
+      description: Administrator agents with full permissions
+      # WARNING: This is a default password hash (SHA-256 of 'admin').
+      # CHANGE THIS IN PRODUCTION! Generate a new hash with:
+      # python -c "import hashlib; print(hashlib.sha256(b'your_secure_password').hexdigest())"
+      password_hash: 8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918
+      metadata:
+        permissions:
+          - all
+
+  # Mods configuration
+  mods:
+    - name: openagents.mods.workspace.messaging
+      enabled: true
+      config:
+        default_channels:
+          - name: general
+            description: General chat channel
+          - name: analysis
+            description: Analysis requests and results channel
+        max_thread_depth: 10
+
+network_profile:
+  discoverable: true
+  name: Integrated Analysis Network
+  description: An OpenAgents network for integrated financial analysis with LLM and database integration
+  tags:
+    - analysis
+    - financial
+    - llm
+    - database
+  categories:
+    - enterprise
+  country: Worldwide
+  required_openagents_version: 0.7.0
+  capacity: 50
+  authentication:
+    type: none
+  host: 0.0.0.0
+  port: 8700
+
+log_level: INFO
+data_dir: ./data/analysis-network
+runtime_limit: null
+shutdown_timeout: 30
