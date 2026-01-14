@@ -1,10 +1,10 @@
 """
 Integrated Analysis Agent for OpenAgents Framework
 Author: S
-Version: 3.0
+Version: 4.0
 
 This agent integrates with the OpenAgents framework to provide:
-1. User input parsing with LLM
+1. User input parsing with LLM (using OpenAgents global API)
 2. Database querying based on extracted information
 3. Comprehensive analysis with context
 4. Result storage in database
@@ -18,9 +18,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from itertools import cycle
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
-import threading
+from typing import Any, Dict, List, Optional
 
 try:
     import psycopg2
@@ -30,18 +28,10 @@ except ImportError:
     psycopg2 = None
 
 try:
-    from google import genai
-    from google.genai import types
-    HAS_GENAI = True
-except ImportError:
-    HAS_GENAI = False
-    genai = None
-    types = None
-
-try:
     from openagents.agents.worker_agent import WorkerAgent
     from openagents.models.agent_config import AgentConfig
     from openagents.models.event_context import ChannelMessageContext, EventContext
+    from openagents.config.llm_configs import create_model_provider
     HAS_OPENAGENTS = True
 except ImportError:
     HAS_OPENAGENTS = False
@@ -49,6 +39,7 @@ except ImportError:
     AgentConfig = None
     ChannelMessageContext = None
     EventContext = None
+    create_model_provider = None
 
 # ----------------------------
 # Logging
@@ -79,104 +70,124 @@ def get_db_config() -> Optional[Dict[str, str]]:
 
 
 # ----------------------------
-# API Key Rotation (thread-safe)
-# ----------------------------
-class ApiKeyRotator:
-    """Thread-safe round-robin over env var names that store API keys."""
-
-    def __init__(self, env_var_names: Sequence[str]) -> None:
-        if not env_var_names:
-            raise ValueError("env_var_names must not be empty")
-        self._env_names = list(env_var_names)
-        self._pool = cycle(self._env_names)
-        self._lock = threading.Lock()
-
-    def next_key(self) -> Tuple[str, str]:
-        with self._lock:
-            name = next(self._pool)
-        value = os.environ.get(name, "")
-        if not value:
-            raise RuntimeError(f"Missing or empty API key env var: {name}")
-        return name, value
-
-
-# ----------------------------
 # LLM Configuration
 # ----------------------------
-if HAS_GENAI:
-    DEFAULT_SAFETY_SETTINGS = [
-        types.SafetySetting(
-            category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-            threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-        ),
-        types.SafetySetting(
-            category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-            threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-        ),
-        types.SafetySetting(
-            category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-            threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-        ),
-        types.SafetySetting(
-            category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-            threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-        ),
-    ]
-else:
-    DEFAULT_SAFETY_SETTINGS = []
-
-
 @dataclass(frozen=True)
 class LlmConfig:
+    """LLM configuration for OpenAgents providers."""
+    # Default provider and model (can be overridden via environment variables)
+    provider: str = "gemini"
     model: str = "gemini-2.5-flash"
-    temperature: float = 0.0
-    safety_settings: Sequence = tuple(DEFAULT_SAFETY_SETTINGS)
+
+
+def get_llm_config() -> LlmConfig:
+    """Get LLM configuration from environment variables."""
+    provider = os.environ.get("OPENAGENTS_LLM_PROVIDER", "gemini")
+    model = os.environ.get("OPENAGENTS_LLM_MODEL", "gemini-2.5-flash")
+    return LlmConfig(provider=provider, model=model)
+
+
+def get_api_key() -> Optional[str]:
+    """
+    Get API key from environment variables.
+    
+    Priority order:
+    1. DEFAULT_LLM_API_KEY (OpenAgents standard)
+    2. GEMINI_API_KEY or GOOGLE_API_KEY (for Gemini provider)
+    3. OPENAI_API_KEY (for OpenAI provider)
+    4. Variables starting with 'Y' (legacy)
+    5. Variables starting with 'MILITAI' (legacy)
+    """
+    # OpenAgents standard
+    api_key = os.environ.get("DEFAULT_LLM_API_KEY")
+    if api_key:
+        return api_key
+    
+    # Gemini-specific
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if api_key:
+        return api_key
+    
+    # OpenAI-specific
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if api_key:
+        return api_key
+    
+    # Legacy: variables starting with 'Y'
+    for key in os.environ.keys():
+        if key.startswith("Y") and os.environ.get(key):
+            return os.environ.get(key)
+    
+    # Legacy: variables starting with 'MILITAI'
+    for key in os.environ.keys():
+        if key.startswith("MILITAI") and os.environ.get(key):
+            return os.environ.get(key)
+    
+    return None
 
 
 # ----------------------------
-# Gemini LLM Runner
+# OpenAgents LLM Runner
 # ----------------------------
-class GeminiRunner:
-    """Reliability-first LLM runner with API key rotation."""
+class OpenAgentsLLMRunner:
+    """LLM runner using OpenAgents framework's global API."""
 
-    def __init__(self, key_rotator: ApiKeyRotator) -> None:
-        self._keys = key_rotator
-
-    def generate_json(
-        self,
-        prompt: str,
-        llm_cfg: Optional[LlmConfig] = None,
-    ) -> Dict[str, Any]:
-        """Generate content and parse as JSON."""
-        if not HAS_GENAI:
-            raise RuntimeError("google-genai package is not installed")
+    def __init__(self, llm_config: Optional[LlmConfig] = None, api_key: Optional[str] = None) -> None:
+        if not HAS_OPENAGENTS:
+            raise RuntimeError("openagents package is not installed")
         
-        llm_cfg = llm_cfg or LlmConfig()
-        key_name, api_key = self._keys.next_key()
-        logger.info("Calling LLM (key=%s, model=%s)", key_name, llm_cfg.model)
+        self._config = llm_config or get_llm_config()
+        self._api_key = api_key or get_api_key()
+        self._provider = None
+        self._initialize_provider()
 
+    def _initialize_provider(self) -> None:
+        """Initialize the LLM provider using OpenAgents framework."""
+        if not self._api_key:
+            raise RuntimeError("No API key found. Set DEFAULT_LLM_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY")
+        
+        logger.info(f"Initializing LLM provider: {self._config.provider}, model: {self._config.model}")
+        self._provider = create_model_provider(
+            provider=self._config.provider,
+            model_name=self._config.model,
+            api_key=self._api_key,
+        )
+
+    async def generate_json_async(self, prompt: str) -> Dict[str, Any]:
+        """Generate content and parse as JSON (async version)."""
+        if not self._provider:
+            raise RuntimeError("LLM provider not initialized")
+        
+        logger.info(f"Calling LLM (provider={self._config.provider}, model={self._config.model})")
+        
+        messages = [{"role": "user", "content": prompt}]
+        
         try:
-            with genai.Client(api_key=api_key) as client:
-                resp = client.models.generate_content(
-                    model=llm_cfg.model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        temperature=llm_cfg.temperature,
-                        safety_settings=list(llm_cfg.safety_settings),
-                        response_mime_type="application/json",
-                    ),
-                )
+            response = await self._provider.chat_completion(messages)
         except Exception as e:
-            raise RuntimeError(f"LLM call failed (model={llm_cfg.model}, key={key_name}): {e}") from e
-
-        text = getattr(resp, "text", None)
-        if not text:
-            raise RuntimeError("LLM returned empty text. Possible safety block or no candidates.")
-
+            raise RuntimeError(f"LLM call failed: {e}") from e
+        
+        content = response.get("content")
+        if not content:
+            raise RuntimeError("LLM returned empty content.")
+        
+        # Try to parse as JSON
         try:
-            return json.loads(text)
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"Failed to parse LLM response as JSON: {e}") from e
+            return json.loads(content)
+        except json.JSONDecodeError:
+            # Try to extract JSON from markdown code blocks
+            import re
+            json_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
+            if json_match:
+                try:
+                    return json.loads(json_match.group(1))
+                except json.JSONDecodeError:
+                    pass
+            raise RuntimeError(f"Failed to parse LLM response as JSON: {content[:200]}...")
+
+    def generate_json(self, prompt: str) -> Dict[str, Any]:
+        """Generate content and parse as JSON (sync wrapper)."""
+        return asyncio.get_event_loop().run_until_complete(self.generate_json_async(prompt))
 
 
 # ----------------------------
@@ -314,7 +325,7 @@ class DatabaseManager:
 # ----------------------------
 # Analysis Functions
 # ----------------------------
-def parse_user_input(runner: GeminiRunner, user_input: str) -> Dict[str, Any]:
+def parse_user_input(runner: OpenAgentsLLMRunner, user_input: str) -> Dict[str, Any]:
     """Parse user input and extract key information using LLM."""
     prompt = f"""
 请分析以下用户输入，提取关键信息。
@@ -334,7 +345,7 @@ def parse_user_input(runner: GeminiRunner, user_input: str) -> Dict[str, Any]:
 
 
 def analyze_with_context(
-    runner: GeminiRunner,
+    runner: OpenAgentsLLMRunner,
     user_input: str,
     parsed_data: Dict[str, Any],
     financial_data: Optional[Dict[str, Any]],
@@ -413,30 +424,17 @@ class AnalysisAgent(WorkerAgent):
         if self.db_manager.connect():
             self.db_manager.create_result_table()
 
-        # Initialize LLM runner
+        # Initialize LLM runner using OpenAgents framework
         # API key environment variables (checked in order of priority):
-        # 1. GEMINI_API_KEY or GOOGLE_API_KEY (standard)
-        # 2. Variables starting with 'Y' (legacy, for compatibility with original main.py)
-        # 3. Variables starting with 'MILITAI' (legacy, alternative naming)
-        api_key_names = []
-        
-        # Check standard environment variable names first
-        if os.environ.get("GEMINI_API_KEY"):
-            api_key_names.append("GEMINI_API_KEY")
-        if os.environ.get("GOOGLE_API_KEY"):
-            api_key_names.append("GOOGLE_API_KEY")
-        
-        # Fall back to legacy naming conventions
-        if not api_key_names:
-            api_key_names = [key for key in os.environ.keys() if key.startswith("Y")]
-        if not api_key_names:
-            api_key_names = [key for key in os.environ.keys() if key.startswith("MILITAI")]
-        
-        if api_key_names and HAS_GENAI:
+        # 1. DEFAULT_LLM_API_KEY (OpenAgents standard)
+        # 2. GEMINI_API_KEY or GOOGLE_API_KEY (for Gemini provider)
+        # 3. OPENAI_API_KEY (for OpenAI provider)
+        # 4. Variables starting with 'Y' (legacy)
+        # 5. Variables starting with 'MILITAI' (legacy)
+        if HAS_OPENAGENTS:
             try:
-                rotator = ApiKeyRotator(env_var_names=api_key_names)
-                self.llm_runner = GeminiRunner(rotator)
-                logger.info("LLM runner initialized successfully")
+                self.llm_runner = OpenAgentsLLMRunner()
+                logger.info("LLM runner initialized successfully using OpenAgents framework")
             except Exception as e:
                 logger.warning(f"Failed to initialize LLM runner: {e}")
 
@@ -548,9 +546,13 @@ def main():
         print("\n备用方案：运行原始的 main.py 脚本")
         return
 
-    # Check for required environment variables
-    if not HAS_GENAI:
-        print("警告：google-genai 包未安装，LLM 功能将不可用")
+    # Check for API key
+    api_key = get_api_key()
+    if not api_key:
+        print("警告：未找到 API 密钥。请设置以下环境变量之一：")
+        print("  - DEFAULT_LLM_API_KEY (OpenAgents 标准)")
+        print("  - GEMINI_API_KEY 或 GOOGLE_API_KEY (Gemini)")
+        print("  - OPENAI_API_KEY (OpenAI)")
 
     # Create and start the agent
     try:
