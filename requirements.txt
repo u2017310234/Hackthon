@@ -4,6 +4,9 @@
 # Core framework
 openagents>=0.7.0
 
+# MCP (Model Context Protocol) - for tool server
+mcp>=1.23.0
+
 # LLM Integration (Google Gemini)
 google-genai>=0.5.0
 

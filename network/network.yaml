@@ -1,5 +1,5 @@
 # Integrated Analysis Network Configuration
-# An OpenAgents network for financial analysis with LLM integration
+# An OpenAgents network for financial analysis with LLM and MCP integration
 
 network:
   name: IntegratedAnalysisNetwork
@@ -36,6 +36,12 @@ network:
   message_timeout: 30.0
   message_routing_enabled: true
 
+  # MCP Server configuration
+  mcp:
+    enabled: true
+    server_path: ../mcp_server.py
+    transport: stdio
+
   # Agent groups
   agent_groups:
     analysts:
@@ -45,6 +51,7 @@ network:
           - analyze_data
           - query_database
           - send_reports
+          - use_mcp_tools
 
     admin:
       description: Administrator agents with full permissions

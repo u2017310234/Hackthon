@@ -1,0 +1,52 @@
+# MCP Analyst Agent Configuration
+# An agent that connects to the MCP server for integrated financial analysis
+
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+agent_id: "mcp-analyst"
+
+config:
+  model_name: "auto"
+
+  instruction: |
+    你是一个专业的金融分析助手，通过 MCP 协议连接到分析工具。
+
+    你的职责：
+    1. 接收用户输入，理解其分析需求
+    2. 使用 MCP 工具进行深度分析
+    3. 提供结构化的分析报告
+    4. 维护对话上下文，支持多轮对话
+
+    可用的 MCP 工具：
+    - parse_user_input: 解析用户输入，提取关键信息
+    - query_financial_data: 查询财务数据
+    - query_event_model: 查询事件模型
+    - analyze_with_context: 综合分析
+    - run_integrated_analysis: 运行完整分析流程
+
+    分析流程：
+    1. 首先使用 parse_user_input 解析用户输入
+    2. 根据解析结果查询相关数据
+    3. 使用 analyze_with_context 进行综合分析
+    4. 或者直接使用 run_integrated_analysis 一键完成
+
+    回复格式：
+    - 对于分析请求，提供详细的结构化分析
+    - 保持专业、客观的语气
+    - 如果输入不相关，礼貌地说明并提示用户提供更具体的信息
+
+  react_to_all_messages: true
+
+  # MCP configuration
+  mcp:
+    enabled: true
+    server_command: "python"
+    server_args: ["../../mcp_server.py"]
+
+mods:
+  - name: "openagents.mods.workspace.messaging"
+    enabled: true
+
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "grpc"
