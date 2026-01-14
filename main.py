@@ -1,30 +1,31 @@
 """
 Author: S
-Version:2.0
+Version: 3.0
 
 This script:
 1. Accepts user input
-2. Uses LLM to parse user input and extract: is_relevant, relevance_score, subject_name, event_type as JSON
+2. Uses LLM (via OpenAgents global API) to parse user input and extract: is_relevant, relevance_score, subject_name, event_type as JSON
 3. Queries database based on subject_name and event_type (placeholder logic)
 4. Sends retrieved data to LLM for analysis and outputs JSON result
 5. Stores JSON result to database table "I"
 """
 
+import asyncio
 import json
 import logging
 import os
-import threading
-import time
+import re
 from dataclasses import dataclass
-from itertools import cycle
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Optional
 
 import psycopg2
-from psycopg2.extras import execute_batch
 
-from google import genai
-from google.genai import types
+try:
+    from openagents.config.llm_configs import create_model_provider
+    HAS_OPENAGENTS = True
+except ImportError:
+    HAS_OPENAGENTS = False
+    create_model_provider = None
 
 # ----------------------------
 # Logging
@@ -54,133 +55,134 @@ def get_db_config() -> Optional[Dict[str, str]]:
 
 
 # ----------------------------
-# API Key Rotation (thread-safe)
-# ----------------------------
-class ApiKeyRotator:
-    """Thread-safe round-robin over env var names that store API keys."""
-
-    def __init__(self, env_var_names: Sequence[str]) -> None:
-        if not env_var_names:
-            raise ValueError("env_var_names must not be empty")
-        self._env_names = list(env_var_names)
-        self._pool = cycle(self._env_names)
-        self._lock = threading.Lock()
-
-    def next_key(self) -> Tuple[str, str]:
-        with self._lock:
-            name = next(self._pool)
-        value = os.environ.get(name, "")
-        if not value:
-            raise RuntimeError(f"Missing or empty API key env var: {name}")
-        return name, value
-
-
-# ----------------------------
 # LLM Configuration
 # ----------------------------
-DEFAULT_SAFETY_SETTINGS = [
-    types.SafetySetting(
-        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-        threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-    ),
-    types.SafetySetting(
-        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-        threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-    ),
-    types.SafetySetting(
-        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-    ),
-    types.SafetySetting(
-        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-        threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-    ),
-]
-
-
 @dataclass(frozen=True)
 class LlmConfig:
+    """LLM configuration for OpenAgents providers."""
+    # Default provider and model (can be overridden via environment variables)
+    provider: str = "gemini"
     model: str = "gemini-2.5-flash"
-    temperature: float = 0.0
-    safety_settings: Sequence[types.SafetySetting] = tuple(DEFAULT_SAFETY_SETTINGS)
+
+
+def get_llm_config() -> LlmConfig:
+    """Get LLM configuration from environment variables."""
+    provider = os.environ.get("OPENAGENTS_LLM_PROVIDER", "gemini")
+    model = os.environ.get("OPENAGENTS_LLM_MODEL", "gemini-2.5-flash")
+    return LlmConfig(provider=provider, model=model)
+
+
+def get_api_key() -> Optional[str]:
+    """
+    Get API key from environment variables.
+    
+    Priority order:
+    1. DEFAULT_LLM_API_KEY (OpenAgents standard)
+    2. GEMINI_API_KEY or GOOGLE_API_KEY (for Gemini provider)
+    3. OPENAI_API_KEY (for OpenAI provider)
+    4. Variables starting with 'Y' (legacy)
+    5. Variables starting with 'MILITAI' (legacy)
+    """
+    # OpenAgents standard
+    api_key = os.environ.get("DEFAULT_LLM_API_KEY")
+    if api_key:
+        return api_key
+    
+    # Gemini-specific
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if api_key:
+        return api_key
+    
+    # OpenAI-specific
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if api_key:
+        return api_key
+    
+    # Legacy: variables starting with 'Y'
+    for key in os.environ.keys():
+        if key.startswith("Y") and os.environ.get(key):
+            return os.environ.get(key)
+    
+    # Legacy: variables starting with 'MILITAI'
+    for key in os.environ.keys():
+        if key.startswith("MILITAI") and os.environ.get(key):
+            return os.environ.get(key)
+    
+    return None
 
 
 # ----------------------------
-# Gemini LLM Runner
+# OpenAgents LLM Runner
 # ----------------------------
-class GeminiRunner:
-    """Reliability-first LLM runner with API key rotation."""
+class OpenAgentsLLMRunner:
+    """LLM runner using OpenAgents framework's global API."""
 
-    def __init__(self, key_rotator: ApiKeyRotator) -> None:
-        self._keys = key_rotator
+    def __init__(self, llm_config: Optional[LlmConfig] = None, api_key: Optional[str] = None) -> None:
+        if not HAS_OPENAGENTS:
+            raise RuntimeError("openagents package is not installed. Run: pip install openagents")
+        
+        self._config = llm_config or get_llm_config()
+        self._api_key = api_key or get_api_key()
+        self._provider = None
+        self._initialize_provider()
 
-    @staticmethod
-    def _normalize_content(content: Union[str, Dict[str, Any], List[Any]]) -> str:
-        if isinstance(content, str):
-            return content
-        return json.dumps(content, ensure_ascii=False, indent=2, sort_keys=True)
+    def _initialize_provider(self) -> None:
+        """Initialize the LLM provider using OpenAgents framework."""
+        if not self._api_key:
+            raise RuntimeError("No API key found. Set DEFAULT_LLM_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY")
+        
+        logger.info(f"Initializing LLM provider: {self._config.provider}, model: {self._config.model}")
+        self._provider = create_model_provider(
+            provider=self._config.provider,
+            model_name=self._config.model,
+            api_key=self._api_key,
+        )
 
-    def generate_json(
-        self,
-        prompt: str,
-        llm_cfg: Optional[LlmConfig] = None,
-    ) -> Dict[str, Any]:
-        """Generate content and parse as JSON."""
-        llm_cfg = llm_cfg or LlmConfig()
-        key_name, api_key = self._keys.next_key()
-        logger.info("Calling LLM (key=%s, model=%s)", key_name, llm_cfg.model)
-
+    async def generate_json_async(self, prompt: str) -> Dict[str, Any]:
+        """Generate content and parse as JSON (async version)."""
+        if not self._provider:
+            raise RuntimeError("LLM provider not initialized")
+        
+        logger.info(f"Calling LLM (provider={self._config.provider}, model={self._config.model})")
+        
+        messages = [{"role": "user", "content": prompt}]
+        
         try:
-            with genai.Client(api_key=api_key) as client:
-                resp = client.models.generate_content(
-                    model=llm_cfg.model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        temperature=llm_cfg.temperature,
-                        safety_settings=list(llm_cfg.safety_settings),
-                        response_mime_type="application/json",
-                    ),
-                )
+            response = await self._provider.chat_completion(messages)
         except Exception as e:
-            raise RuntimeError(f"LLM call failed (model={llm_cfg.model}, key={key_name}): {e}") from e
-
-        text = getattr(resp, "text", None)
-        if not text:
-            raise RuntimeError("LLM returned empty text. Possible safety block or no candidates.")
-
+            raise RuntimeError(f"LLM call failed: {e}") from e
+        
+        content = response.get("content")
+        if not content:
+            raise RuntimeError("LLM returned empty content.")
+        
+        # Try to parse as JSON
         try:
-            return json.loads(text)
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"Failed to parse LLM response as JSON: {e}") from e
+            return json.loads(content)
+        except json.JSONDecodeError:
+            # Try to extract JSON from markdown code blocks
+            json_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
+            if json_match:
+                try:
+                    return json.loads(json_match.group(1))
+                except json.JSONDecodeError:
+                    pass
+            raise RuntimeError(f"Failed to parse LLM response as JSON: {content[:200]}...")
 
-    def generate_text(
-        self,
-        prompt: str,
-        llm_cfg: Optional[LlmConfig] = None,
-    ) -> str:
-        """Generate plain text content."""
-        llm_cfg = llm_cfg or LlmConfig()
-        key_name, api_key = self._keys.next_key()
-        logger.info("Calling LLM (key=%s, model=%s)", key_name, llm_cfg.model)
-
+    def generate_json(self, prompt: str) -> Dict[str, Any]:
+        """Generate content and parse as JSON (sync wrapper)."""
         try:
-            with genai.Client(api_key=api_key) as client:
-                resp = client.models.generate_content(
-                    model=llm_cfg.model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        temperature=llm_cfg.temperature,
-                        safety_settings=list(llm_cfg.safety_settings),
-                    ),
-                )
-        except Exception as e:
-            raise RuntimeError(f"LLM call failed (model={llm_cfg.model}, key={key_name}): {e}") from e
-
-        text = getattr(resp, "text", None)
-        if not text:
-            raise RuntimeError("LLM returned empty text. Possible safety block or no candidates.")
-
-        return text
+            # Try to get the running event loop
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running event loop, create a new one
+            return asyncio.run(self.generate_json_async(prompt))
+        else:
+            # Already in an event loop, use run_until_complete with a new loop in a thread
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.generate_json_async(prompt))
+                return future.result()
 
 
 # ----------------------------
@@ -276,7 +278,7 @@ def insert_analysis_result(
 # ----------------------------
 # Core Analysis Functions
 # ----------------------------
-def parse_user_input(runner: GeminiRunner, user_input: str) -> Dict[str, Any]:
+def parse_user_input(runner: OpenAgentsLLMRunner, user_input: str) -> Dict[str, Any]:
     """
     Use LLM to parse user input and extract:
     - is_relevant: whether the input is relevant
@@ -302,7 +304,7 @@ def parse_user_input(runner: GeminiRunner, user_input: str) -> Dict[str, Any]:
 
 
 def analyze_with_context(
-    runner: GeminiRunner,
+    runner: OpenAgentsLLMRunner,
     user_input: str,
     parsed_data: Dict[str, Any],
     financial_data: Optional[Dict[str, Any]],
@@ -367,7 +369,7 @@ def format_result_as_string(analysis_result: Dict[str, Any]) -> str:
 # ----------------------------
 def run_integrated_analysis(
     user_input: str,
-    runner: GeminiRunner,
+    runner: OpenAgentsLLMRunner,
     db_conn,
 ) -> Dict[str, Any]:
     """
@@ -375,7 +377,7 @@ def run_integrated_analysis(
 
     Args:
         user_input: User's input text
-        runner: GeminiRunner instance
+        runner: OpenAgentsLLMRunner instance
         db_conn: Database connection
 
     Returns:
@@ -431,25 +433,31 @@ def run_integrated_analysis(
 # ----------------------------
 def main():
     """Main entry point for the integrated analysis script."""
+    # Check for OpenAgents package
+    if not HAS_OPENAGENTS:
+        print("错误：openagents 包未安装。请运行：pip install openagents")
+        return
+
     # Initialize database connection
     db_config = get_db_config()
     if not db_config:
         logger.error("Database configuration not available. Exiting.")
         return
 
-    # Initialize API key rotator (adjust env var names as needed)
-    api_key_names = [key for key in os.environ.keys() if key.startswith("Y")]
-    if not api_key_names:
-        # Fallback to alternative key names
-        api_key_names = [key for key in os.environ.keys() if key.startswith("MILITAI")]
-
-    if not api_key_names:
+    # Check for API key
+    api_key = get_api_key()
+    if not api_key:
+        print("警告：未找到 API 密钥。请设置以下环境变量之一：")
+        print("  - DEFAULT_LLM_API_KEY (OpenAgents 标准)")
+        print("  - GEMINI_API_KEY 或 GOOGLE_API_KEY (Gemini)")
+        print("  - OPENAI_API_KEY (OpenAI)")
         logger.error("No API keys found in environment variables. Exiting.")
         return
 
     try:
-        rotator = ApiKeyRotator(env_var_names=api_key_names)
-        runner = GeminiRunner(rotator)
+        # Initialize LLM runner using OpenAgents framework
+        runner = OpenAgentsLLMRunner()
+        logger.info("LLM runner initialized successfully using OpenAgents framework")
 
         # Connect to database
         conn = psycopg2.connect(**db_config)
@@ -460,7 +468,7 @@ def main():
 
         # Get user input
         print("=" * 60)
-        print("综合分析系统")
+        print("综合分析系统 (使用 OpenAgents 框架)")
         print("输入您要分析的内容（输入 'exit' 退出）：")
         print("=" * 60)
 

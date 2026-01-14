@@ -7,7 +7,7 @@
 - 🤖 **智能分析代理**：使用 LLM 解析用户输入并提取关键信息
 - 📊 **数据库集成**：支持 PostgreSQL 数据库查询和结果存储
 - 🌐 **OpenAgents 网络**：支持多代理协作和网络通信
-- 🔄 **API 密钥轮换**：支持多个 API 密钥的负载均衡
+- 🔄 **多 LLM 提供商**：通过 OpenAgents 全局 API 支持多种 LLM 提供商
 
 ## 快速开始
 
@@ -20,6 +20,9 @@ conda activate hackthon
 
 # 安装依赖
 pip install -r requirements.txt
+
+# 如果使用 Gemini，还需安装：
+pip install google-generativeai
 ```
 
 ### 2. 配置环境变量
@@ -32,17 +35,25 @@ export DAILY_PASSWORD="your_password"
 export DAILY_HOST="your_host"
 export DAILY_PORT="5432"
 
-# API 密钥（用于 Gemini LLM）
-# 推荐使用标准命名:
+# LLM API 密钥（选择其中一种方式）
+
+# 方式一：OpenAgents 标准（推荐）
+export DEFAULT_LLM_API_KEY="your_api_key"
+
+# 方式二：Gemini 特定
 export GEMINI_API_KEY="your_api_key"
 # 或者
 export GOOGLE_API_KEY="your_api_key"
 
-# 支持多个密钥进行轮换:
+# 方式三：OpenAI 特定
+export OPENAI_API_KEY="your_api_key"
+
+# 可选：配置 LLM 提供商和模型
+export OPENAGENTS_LLM_PROVIDER="gemini"  # 可选: openai, gemini, claude, deepseek 等
+export OPENAGENTS_LLM_MODEL="gemini-2.5-flash"
+
+# 兼容旧版：支持以 Y 或 MILITAI 开头的环境变量
 export Y1="your_api_key_1"
-export Y2="your_api_key_2"
-# 或者使用
-export MILITAI1="your_api_key"
 ```
 
 ### 3. 启动 OpenAgents 网络
@@ -77,7 +88,7 @@ openagents studio -s
 
 ```
 Hackthon/
-├── main.py                    # 原始独立脚本
+├── main.py                    # 独立脚本（使用 OpenAgents 全局 API）
 ├── requirements.txt           # Python 依赖
 ├── README.md                  # 项目文档
 ├── LICENSE                    # 许可证
@@ -90,9 +101,9 @@ Hackthon/
 
 ## 使用方式
 
-### 命令行模式（原始脚本）
+### 命令行模式（独立脚本）
 
-如果不使用 OpenAgents 框架，可以直接运行原始脚本：
+直接运行独立脚本进行分析：
 
 ```bash
 python main.py
@@ -141,10 +152,22 @@ client.connect(host="localhost", port=8700)
 置信度：[0.0-1.0]
 ```
 
+## 支持的 LLM 提供商
+
+通过 OpenAgents 全局 API，本项目支持以下 LLM 提供商：
+
+| 提供商 | 环境变量 | 示例模型 |
+|--------|----------|----------|
+| OpenAI | `OPENAI_API_KEY` | gpt-4, gpt-3.5-turbo |
+| Google Gemini | `GEMINI_API_KEY` 或 `GOOGLE_API_KEY` | gemini-2.5-flash, gemini-pro |
+| Anthropic Claude | `ANTHROPIC_API_KEY` | claude-3-opus, claude-3-sonnet |
+| DeepSeek | `DEEPSEEK_API_KEY` | deepseek-chat |
+| Azure OpenAI | `AZURE_OPENAI_API_KEY` | gpt-4 (Azure) |
+| 更多... | 参见 OpenAgents 文档 | - |
+
 ## 技术栈
 
-- **OpenAgents**：AI 代理网络框架
-- **Google Gemini**：大语言模型
+- **OpenAgents**：AI 代理网络框架（包含统一的 LLM 提供商 API）
 - **PostgreSQL**：关系型数据库
 - **Python 3.10+**：编程语言
 
