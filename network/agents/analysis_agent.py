@@ -187,7 +187,18 @@ class OpenAgentsLLMRunner:
 
     def generate_json(self, prompt: str) -> Dict[str, Any]:
         """Generate content and parse as JSON (sync wrapper)."""
-        return asyncio.get_event_loop().run_until_complete(self.generate_json_async(prompt))
+        try:
+            # Try to get the running event loop
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running event loop, create a new one
+            return asyncio.run(self.generate_json_async(prompt))
+        else:
+            # Already in an event loop, use run_until_complete with a new loop in a thread
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.generate_json_async(prompt))
+                return future.result()
 
 
 # ----------------------------
