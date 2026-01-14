@@ -13,9 +13,6 @@ This MCP server exposes the analysis tools from main.py:
 Usage:
     # Run as stdio server (for MCP clients)
     python mcp_server.py
-    
-    # Or use with uvicorn for HTTP transport
-    uvicorn mcp_server:app --host 0.0.0.0 --port 8000
 """
 
 import json

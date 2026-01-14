@@ -18,8 +18,8 @@ import asyncio
 import json
 import logging
 import os
-import subprocess
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # ----------------------------
@@ -30,6 +30,21 @@ logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+
+# ----------------------------
+# Path utilities
+# ----------------------------
+def get_project_root() -> Path:
+    """Get the project root directory."""
+    # This file is at network/agents/mcp_agent.py
+    # Project root is two directories up
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def get_mcp_server_path() -> Path:
+    """Get the path to the MCP server script."""
+    return get_project_root() / "mcp_server.py"
+
 
 # ----------------------------
 # Optional imports with graceful fallback
@@ -191,10 +206,7 @@ class MCPAnalysisAgent(WorkerAgent):
         # Determine MCP server path
         if mcp_server_path is None:
             # Default to mcp_server.py in the project root
-            self.mcp_server_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "mcp_server.py"
-            )
+            self.mcp_server_path = str(get_mcp_server_path())
         else:
             self.mcp_server_path = mcp_server_path
         
@@ -392,19 +404,15 @@ async def run_standalone_chat():
     print("输入 'help' 获取帮助信息")
     print("=" * 60)
     
-    # Determine MCP server path
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    mcp_server_path = os.path.join(
-        os.path.dirname(os.path.dirname(script_dir)),
-        "mcp_server.py"
-    )
+    # Determine MCP server path using utility function
+    mcp_server_path = get_mcp_server_path()
     
-    if not os.path.exists(mcp_server_path):
+    if not mcp_server_path.exists():
         print(f"错误：找不到 MCP 服务器脚本: {mcp_server_path}")
         return
     
     # Initialize MCP client
-    mcp_client = MCPClientManager(mcp_server_path)
+    mcp_client = MCPClientManager(str(mcp_server_path))
     conversation_manager = ConversationManager()
     conversation_id = "standalone"
     
@@ -495,12 +503,8 @@ def main():
     if HAS_OPENAGENTS:
         # Run as OpenAgents agent
         try:
-            # Determine MCP server path
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            mcp_server_path = os.path.join(
-                os.path.dirname(os.path.dirname(script_dir)),
-                "mcp_server.py"
-            )
+            # Use utility function for MCP server path
+            mcp_server_path = str(get_mcp_server_path())
             
             agent = MCPAnalysisAgent(
                 mcp_server_path=mcp_server_path,
