@@ -467,7 +467,7 @@ class AnalysisAgent(WorkerAgent):
         
         # Defensive check for channel attribute
         if not hasattr(context, 'channel'):
-            logger.error(f"ChannelMessageContext missing 'channel' attribute. Available attributes: {dir(context)}")
+            logger.error(f"ChannelMessageContext missing 'channel' attribute. Context type: {type(context).__name__}")
             return
         
         user_input = context.content if hasattr(context, 'content') else str(context)
