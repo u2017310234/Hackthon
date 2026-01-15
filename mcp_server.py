@@ -901,12 +901,22 @@ async def main():
     
     # Run the MCP server
     from mcp.server.stdio import stdio_server
+    from mcp.server import InitializationOptions
+    from mcp.types import ServerCapabilities
     
     async with stdio_server() as (read_stream, write_stream):
+        init_options = InitializationOptions(
+            server_name="integrated-analysis",
+            server_version="1.1",
+            capabilities=ServerCapabilities(
+                tools={}
+            )
+        )
+        
         await server.run(
             read_stream,
             write_stream,
-            server.create_initialization_options()
+            init_options
         )
 
 
