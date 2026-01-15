@@ -8,6 +8,7 @@
 - 📊 **数据库集成**：支持 PostgreSQL 数据库查询和结果存储
 - 🌐 **OpenAgents 网络**：支持多代理协作和网络通信
 - 🔄 **API 密钥轮换**：支持多个 API 密钥的负载均衡
+- 🌏 **多 LLM 提供商支持**：支持阿里云通义千问、OpenAI GPT、Google Gemini
 
 ## 快速开始
 
@@ -25,24 +26,30 @@ pip install -r requirements.txt
 ### 2. 配置环境变量
 
 ```bash
-# 数据库配置
+# 数据库配置（可选）
 export DAILY_DATABASE="your_database"
 export DAILY_USER="your_user"
 export DAILY_PASSWORD="your_password"
 export DAILY_HOST="your_host"
 export DAILY_PORT="5432"
 
-# API 密钥（用于 Gemini LLM）
-# 推荐使用标准命名:
-export GEMINI_API_KEY="your_api_key"
+# LLM API 密钥（选择其中一种）
+# 推荐使用阿里云通义千问（国内访问快）
+export DASHSCOPE_API_KEY="sk-..."
+export ALIBABA_MODEL="qwen-max"  # 可选: qwen-plus, qwen-turbo
+
+# 或者使用 OpenAI
+export OPENAI_API_KEY="sk-proj-..."
+export OPENAI_MODEL="gpt-4o-mini"  # 可选: gpt-4o, gpt-3.5-turbo
+
+# 或者使用 Google Gemini
+export GEMINI_API_KEY="AIza..."
 # 或者
 export GOOGLE_API_KEY="your_api_key"
 
-# 支持多个密钥进行轮换:
+# 支持多个密钥进行轮换（仅 Gemini）:
 export Y1="your_api_key_1"
 export Y2="your_api_key_2"
-# 或者使用
-export MILITAI1="your_api_key"
 ```
 
 ### 3. 启动 OpenAgents 网络
@@ -73,11 +80,90 @@ python ./network/agents/analysis_agent.py
 openagents studio -s
 ```
 
+## 🤖 LLM Provider Configuration
+
+本系统支持三种 LLM 提供商，按优先级自动选择：
+
+### 阿里云通义千问 (推荐) - Priority 1
+
+阿里云通义千问是国内访问速度最快的选项，推荐国内用户使用。
+
+**方式1: OpenAI兼容接口 (推荐，无需额外依赖)**
+```bash
+export DASHSCOPE_API_KEY="sk-xxxxxx"
+export ALIBABA_MODEL="qwen-max"  # 可选: qwen-plus, qwen-turbo
+python mcp_server.py
+```
+
+**方式2: DashScope SDK**
+```bash
+pip install dashscope
+export DASHSCOPE_API_KEY="sk-xxxxxx"
+export ALIBABA_USE_DASHSCOPE="true"
+python mcp_server.py
+```
+
+**获取API密钥:**
+1. 访问 https://dashscope.console.aliyun.com/
+2. 登录阿里云账号
+3. 创建API密钥
+4. 开通通义千问服务
+
+**模型选择:**
+- `qwen-max`: 最强性能，适合复杂分析
+- `qwen-plus`: 平衡性能和成本
+- `qwen-turbo`: 快速响应，低成本
+
+### OpenAI GPT - Priority 2
+
+```bash
+pip install openai
+export OPENAI_API_KEY="sk-proj-xxxxxx"
+export OPENAI_MODEL="gpt-4o-mini"  # 或 gpt-4o, gpt-3.5-turbo
+python mcp_server.py
+```
+
+### Google Gemini - Priority 3
+
+```bash
+pip install google-genai
+export GEMINI_API_KEY="AIza..."
+python mcp_server.py
+```
+
+## 📦 Dependencies
+
+**核心依赖:**
+```bash
+pip install mcp
+```
+
+**LLM提供商 (至少选一个):**
+```bash
+# 阿里云 (OpenAI兼容接口)
+pip install openai
+
+# 阿里云 (DashScope SDK)
+pip install dashscope
+
+# OpenAI
+pip install openai
+
+# Gemini
+pip install google-genai
+```
+
+**数据库 (可选):**
+```bash
+pip install psycopg2-binary
+```
+
 ## 项目结构
 
 ```
 Hackthon/
 ├── main.py                    # 原始独立脚本
+├── mcp_server.py              # MCP 服务器（多 LLM 提供商支持）
 ├── requirements.txt           # Python 依赖
 ├── README.md                  # 项目文档
 ├── LICENSE                    # 许可证
@@ -89,6 +175,21 @@ Hackthon/
 ```
 
 ## 使用方式
+
+### MCP Server 模式（推荐）
+
+MCP (Model Context Protocol) 服务器支持多个 LLM 提供商，提供以下工具：
+
+```bash
+python mcp_server.py
+```
+
+**可用工具:**
+1. `parse_user_input` - 解析用户输入并提取关键信息
+2. `query_financial_data` - 根据主体名称查询财务数据
+3. `query_event_model` - 根据事件类型查询事件模型
+4. `analyze_with_context` - 基于数据库上下文进行分析
+5. `run_integrated_analysis` - 运行完整的分析工作流
 
 ### 命令行模式（原始脚本）
 
