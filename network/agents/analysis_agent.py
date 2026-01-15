@@ -456,8 +456,11 @@ class AnalysisAgent(WorkerAgent):
             await ws.agent(context.source_id).send(result)
         except Exception as e:
             error_msg = f"分析过程中出错：{str(e)}"
-            logger.error(f"Analysis failed: {e}")
-            await ws.agent(context.source_id).send(error_msg)
+            logger.error(f"Analysis failed: {e}", exc_info=True)
+            try:
+                await ws.agent(context.source_id).send(error_msg)
+            except Exception as send_error:
+                logger.error(f"Failed to send error message: {send_error}", exc_info=True)
 
     async def on_channel_post(self, context: ChannelMessageContext):
         """Handle channel messages."""
@@ -465,17 +468,26 @@ class AnalysisAgent(WorkerAgent):
         if context.source_id == self.agent_id:
             return
         
+        # Get channel identifier (use 'channel' attribute as per OpenAgents framework)
+        channel = getattr(context, 'channel', None)
+        if not channel:
+            logger.error(f"Cannot find channel attribute in context. Available attributes: {[a for a in dir(context) if not a.startswith('_')]}")
+            return
+        
         user_input = context.content if hasattr(context, 'content') else str(context)
         
         try:
             result = await self._run_analysis(user_input)
             ws = self.workspace()
-            await ws.channel(context.channel_id).post(result)
+            await ws.channel(channel).post(result)
         except Exception as e:
             error_msg = f"分析过程中出错：{str(e)}"
-            logger.error(f"Analysis failed: {e}")
+            logger.error(f"Analysis failed: {e}", exc_info=True)
             ws = self.workspace()
-            await ws.channel(context.channel_id).post(error_msg)
+            try:
+                await ws.channel(channel).post(error_msg)
+            except Exception as post_error:
+                logger.error(f"Failed to post error message to channel: {post_error}", exc_info=True)
 
     async def _run_analysis(self, user_input: str) -> str:
         """Run the complete analysis workflow."""
