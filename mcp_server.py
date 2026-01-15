@@ -193,7 +193,13 @@ class LlmConfig:
 # JSON Parsing Utility
 # ----------------------------
 def extract_json_from_text(text: str) -> Dict[str, Any]:
-    """Extract and parse JSON from text, handling markdown code blocks."""
+    """Extract and parse JSON from text, handling markdown code blocks.
+    
+    Strategy:
+    1. Try direct JSON parse
+    2. Try extracting from markdown code blocks
+    3. Try finding JSON objects by scanning for balanced braces
+    """
     
     # Try direct JSON parse first
     try:
@@ -206,23 +212,58 @@ def extract_json_from_text(text: str) -> Dict[str, Any]:
     matches = re.findall(json_pattern, text, re.DOTALL)
     
     if matches:
-        try:
-            return json.loads(matches[0])
-        except json.JSONDecodeError:
-            pass
-    
-    # Try to find JSON object in text (non-greedy, validated by json.loads)
-    # Note: Pattern tries to match JSON objects, but json.loads() validates
-    json_object_pattern = r'\{.*?\}'
-    matches = re.findall(json_object_pattern, text, re.DOTALL)
-    
-    if matches:
-        # Try matches from longest to shortest (more likely to be complete)
-        for match in sorted(matches, key=len, reverse=True):
+        for match in matches:
             try:
                 return json.loads(match)
             except json.JSONDecodeError:
                 continue
+    
+    # Try to find JSON object by scanning for balanced braces
+    # This handles nested objects correctly
+    potential_jsons = []
+    i = 0
+    while i < len(text):
+        if text[i] == '{':
+            # Found start of potential JSON object
+            brace_count = 0
+            start = i
+            in_string = False
+            escape_next = False
+            
+            for j in range(i, len(text)):
+                char = text[j]
+                
+                # Handle string content (don't count braces inside strings)
+                if escape_next:
+                    escape_next = False
+                    continue
+                if char == '\\':
+                    escape_next = True
+                    continue
+                if char == '"':
+                    in_string = not in_string
+                    continue
+                
+                if not in_string:
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            # Found matching closing brace
+                            potential_jsons.append(text[start:j+1])
+                            i = j
+                            break
+            i += 1
+        else:
+            i += 1
+    
+    # Try potential JSON objects from longest to shortest
+    for json_str in sorted(potential_jsons, key=len, reverse=True):
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            continue
     
     raise RuntimeError(f"Failed to extract valid JSON from LLM response: {text[:200]}...")
 
