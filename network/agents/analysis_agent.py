@@ -465,17 +465,24 @@ class AnalysisAgent(WorkerAgent):
         if context.source_id == self.agent_id:
             return
         
+        # Defensive check for channel attribute
+        if not hasattr(context, 'channel'):
+            logger.error(f"ChannelMessageContext missing 'channel' attribute. Context type: {type(context).__name__}")
+            return
+        
         user_input = context.content if hasattr(context, 'content') else str(context)
+        channel_name = context.channel
+        logger.debug(f"Processing message in channel '{channel_name}' from {context.source_id}")
         
         try:
             result = await self._run_analysis(user_input)
             ws = self.workspace()
-            await ws.channel(context.channel_id).post(result)
+            await ws.channel(channel_name).post(result)
         except Exception as e:
             error_msg = f"分析过程中出错：{str(e)}"
-            logger.error(f"Analysis failed: {e}")
+            logger.error(f"Analysis failed in channel '{channel_name}': {e}")
             ws = self.workspace()
-            await ws.channel(context.channel_id).post(error_msg)
+            await ws.channel(channel_name).post(error_msg)
 
     async def _run_analysis(self, user_input: str) -> str:
         """Run the complete analysis workflow."""
