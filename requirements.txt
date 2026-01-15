@@ -4,8 +4,20 @@
 # Core framework
 openagents>=0.7.0
 
-# LLM Integration (Google Gemini)
+# LLM Integration - Multi-Provider Support
+# At least one LLM provider is required:
+
+# Google Gemini (Priority 1)
 google-genai>=0.5.0
+
+# OpenAI (Priority 2) - Optional
+# openai>=1.0.0
+
+# Alibaba Qwen (Priority 3) - Optional
+# For OpenAI-compatible API (recommended):
+# openai>=1.0.0
+# For native DashScope SDK:
+# dashscope>=1.19.0
 
 # Database
 psycopg2-binary>=2.9.0
