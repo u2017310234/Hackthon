@@ -104,7 +104,7 @@ class ApiKeyRotator:
 
     def __init__(self, env_var_names: Sequence[str]) -> None:
         if not env_var_names:
-            raise ValueError("env_var_names must not be empty")
+            raise ValueError("At least one environment variable name must be provided for API key rotation")
         self._env_names = list(env_var_names)
         self._pool = cycle(self._env_names)
         self._lock = threading.Lock()
@@ -258,11 +258,14 @@ def get_llm_runner() -> Optional[Any]:
     if HAS_GENAI:
         api_key_names = []
         
+        # Check standard Gemini environment variables
         if os.environ.get("GEMINI_API_KEY"):
             api_key_names.append("GEMINI_API_KEY")
         if os.environ.get("GOOGLE_API_KEY"):
             api_key_names.append("GOOGLE_API_KEY")
         
+        # Legacy compatibility: Check for custom-named API keys
+        # These patterns are for backward compatibility with existing deployments
         if not api_key_names:
             api_key_names = [key for key in os.environ.keys() if key.startswith("Y")]
         if not api_key_names:
