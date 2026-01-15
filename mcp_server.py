@@ -199,9 +199,14 @@ def extract_json_from_text(text: str) -> Dict[str, Any]:
     """Extract and parse JSON from text, handling markdown code blocks.
     
     Strategy:
-    1. Try direct JSON parse
-    2. Try extracting from markdown code blocks
-    3. Try finding JSON objects by scanning for balanced braces
+    1. Try direct JSON parse (O(n))
+    2. Try extracting from markdown code blocks (O(n))
+    3. Try finding JSON objects by scanning for balanced braces (O(n²) worst case)
+    
+    Note: The balanced brace algorithm has O(n²) complexity in the worst case
+    (e.g., when text contains many invalid JSON-like patterns). This is acceptable
+    for typical LLM responses (< 10KB). For very large inputs, the function will
+    succeed at step 1 or 2 in most cases.
     """
     
     # Try direct JSON parse first
@@ -389,7 +394,7 @@ class AlibabaRunner:
                 prompt=prompt,
                 result_format='message',
                 temperature=0.0,
-                api_key=self.api_key,  # Pass API key per-call for thread safety
+                api_key=self.api_key,
             )
             
             if response.status_code != 200:
