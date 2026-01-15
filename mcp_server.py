@@ -15,6 +15,9 @@ Environment Variables - LLM Configuration:
 Priority 1 - Gemini:
   GEMINI_API_KEY or GOOGLE_API_KEY: Google Gemini API key
   GEMINI_MODEL: Model name (default from LlmConfig)
+  
+  Legacy fallback (for backward compatibility):
+  Y*, MILITAI*: Alternative environment variable names for Gemini API keys
 
 Priority 2 - OpenAI:
   OPENAI_API_KEY: OpenAI API key
@@ -208,12 +211,14 @@ def extract_json_from_text(text: str) -> Dict[str, Any]:
         except json.JSONDecodeError:
             pass
     
-    # Try to find JSON object in text
-    json_object_pattern = r'\{.*\}'
+    # Try to find JSON object in text (non-greedy, validated by json.loads)
+    # Note: Pattern tries to match JSON objects, but json.loads() validates
+    json_object_pattern = r'\{.*?\}'
     matches = re.findall(json_object_pattern, text, re.DOTALL)
     
     if matches:
-        for match in matches:
+        # Try matches from longest to shortest (more likely to be complete)
+        for match in sorted(matches, key=len, reverse=True):
             try:
                 return json.loads(match)
             except json.JSONDecodeError:
@@ -311,7 +316,7 @@ class AlibabaRunner:
         if use_dashscope:
             if not HAS_DASHSCOPE:
                 raise RuntimeError("dashscope package is not installed. Run: pip install dashscope")
-            dashscope.api_key = api_key
+            # API key will be passed per-call for thread safety
             logger.info(f"Alibaba runner initialized with DashScope SDK (model={model})")
         else:
             if not HAS_OPENAI:
@@ -334,11 +339,13 @@ class AlibabaRunner:
         try:
             from dashscope import Generation
             
+            # Pass API key directly in call for thread safety
             response = Generation.call(
                 model=self.model,
                 prompt=prompt,
                 result_format='message',
                 temperature=0.0,
+                api_key=self.api_key,  # Pass API key per-call for thread safety
             )
             
             if response.status_code != 200:
