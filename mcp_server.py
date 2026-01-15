@@ -3,6 +3,8 @@ MCP Server for Integrated Analysis
 Author: S
 Version: 1.2
 
+MCP (Model Context Protocol) Server
+
 This MCP server exposes analysis tools with multi-LLM provider support.
 
 Supported LLM Providers (Priority Order):
@@ -17,7 +19,8 @@ Priority 1 - Gemini:
   GEMINI_MODEL: Model name (default from LlmConfig)
   
   Legacy fallback (for backward compatibility):
-  Y*, MILITAI*: Alternative environment variable names for Gemini API keys
+  Y1, Y2, ...: Alternative environment variable names for Gemini API keys
+  MILITAI1, MILITAI2, ...: Alternative environment variable names for Gemini API keys
 
 Priority 2 - OpenAI:
   OPENAI_API_KEY: OpenAI API key
@@ -265,7 +268,7 @@ def extract_json_from_text(text: str) -> Dict[str, Any]:
         except json.JSONDecodeError:
             continue
     
-    raise RuntimeError(f"Failed to extract valid JSON from LLM response: {text[:200]}...")
+    raise RuntimeError(f"Failed to extract valid JSON from LLM response (length: {len(text)} chars)")
 
 
 # ----------------------------
@@ -440,15 +443,20 @@ def get_llm_runner() -> Optional[Any]:
     if HAS_GENAI:
         api_key_names = []
         
+        # Check standard environment variable names first
         if os.environ.get("GEMINI_API_KEY"):
             api_key_names.append("GEMINI_API_KEY")
         if os.environ.get("GOOGLE_API_KEY"):
             api_key_names.append("GOOGLE_API_KEY")
         
+        # Legacy environment variable patterns (for backward compatibility)
+        # Only check Y followed by digit, not any Y* prefix
         if not api_key_names:
-            api_key_names = [key for key in os.environ.keys() if key.startswith("Y")]
+            api_key_names = [key for key in os.environ.keys() 
+                           if re.match(r'^Y\d+$', key)]
         if not api_key_names:
-            api_key_names = [key for key in os.environ.keys() if key.startswith("MILITAI")]
+            api_key_names = [key for key in os.environ.keys() 
+                           if re.match(r'^MILITAI\d+$', key)]
         
         if api_key_names:
             try:
@@ -536,18 +544,36 @@ def create_result_table(conn) -> None:
 def query_financial_data(conn, subject_name: str) -> Optional[Dict[str, Any]]:
     """
     Query financial data by subject name.
-    TODO: Implement actual query logic based on your database schema.
+    
+    WARNING: This is a PLACEHOLDER implementation for demonstration purposes.
+    In production, replace with actual database queries based on your schema.
+    
+    Example production implementation:
+        query = "SELECT * FROM financial_data WHERE subject_name = %s"
+        with conn.cursor() as cur:
+            cur.execute(query, (subject_name,))
+            result = cur.fetchone()
+            return dict(result) if result else None
     """
-    logger.info(f"Querying financial data for subject: {subject_name}")
+    logger.warning(f"Using PLACEHOLDER financial data for subject: {subject_name}")
     return {"placeholder": "financial_data", "subject": subject_name}
 
 
 def query_event_model(conn, event_type: str) -> Optional[Dict[str, Any]]:
     """
     Query event model by event type.
-    TODO: Implement actual query logic based on your database schema.
+    
+    WARNING: This is a PLACEHOLDER implementation for demonstration purposes.
+    In production, replace with actual database queries based on your schema.
+    
+    Example production implementation:
+        query = "SELECT * FROM event_models WHERE event_type = %s"
+        with conn.cursor() as cur:
+            cur.execute(query, (event_type,))
+            result = cur.fetchone()
+            return dict(result) if result else None
     """
-    logger.info(f"Querying event model for type: {event_type}")
+    logger.warning(f"Using PLACEHOLDER event model for type: {event_type}")
     return {"placeholder": "event_model", "type": event_type}
 
 
@@ -559,10 +585,20 @@ def insert_analysis_result(
     event_model: Optional[Dict[str, Any]],
     analysis_result: str,
 ) -> Optional[int]:
-    """Insert analysis result into table 'I' and return the new ID."""
+    """Insert analysis result into table 'I' and return the new ID.
+    
+    Note: psycopg2 handles parameterized queries to prevent SQL injection.
+    Input validation is handled by database constraints and type checking.
+    """
     if not conn:
         logger.warning("No database connection, result not stored")
         return None
+    
+    # Basic input validation
+    if not isinstance(user_input, str) or len(user_input) > 10000:
+        raise ValueError("user_input must be a string with max length 10000")
+    if not isinstance(analysis_result, str) or len(analysis_result) > 50000:
+        raise ValueError("analysis_result must be a string with max length 50000")
     
     query = """
     INSERT INTO "I" (
@@ -573,6 +609,7 @@ def insert_analysis_result(
     ) RETURNING id;
     """
     with conn.cursor() as cur:
+        # psycopg2 parameterized queries prevent SQL injection
         cur.execute(query, (
             user_input,
             parsed_data.get("is_relevant"),
