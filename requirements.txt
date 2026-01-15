@@ -4,8 +4,18 @@
 # Core framework
 openagents>=0.7.0
 
-# LLM Integration (Google Gemini)
+# MCP Server (Model Context Protocol)
+mcp
+
+# LLM Integration (choose at least one)
+# Google Gemini
 google-genai>=0.5.0
+
+# OpenAI (also used for Alibaba Cloud OpenAI-compatible endpoint)
+# openai>=1.0.0
+
+# Alibaba Cloud DashScope SDK (optional)
+# dashscope>=1.14.0
 
 # Database
 psycopg2-binary>=2.9.0
